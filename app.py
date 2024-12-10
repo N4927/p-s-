@@ -35,7 +35,7 @@ def cylindricalToCartesian(r: float, long: float, lat: float) -> tuple[float, fl
     return x, y, z
 
 
-class StartApp(toga.App):
+class ISSTracker(toga.App):
     polygons: list[list[tuple[float, float, float]]]
     SIZE = 800
     WIDTH = SIZE
@@ -248,7 +248,7 @@ class StartApp(toga.App):
 
 
 def main():
-    return StartApp("Tutorial 4", "org.beeware.toga.tutorial")
+    return ISSTracker("ISS Tracker", "com.github.N4927.p-s-")
 
 
 if __name__ == "__main__":
