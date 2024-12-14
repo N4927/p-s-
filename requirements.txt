@@ -2,3 +2,5 @@ toga
 dash
 numpy
 aiohttp
+
+requests
