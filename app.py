@@ -12,6 +12,7 @@ from toga.colors import rgb, rgba
 from toga import colors
 from toga.style import Pack
 
+import requests
 
 async def get_iss_position():
     url = "http://api.open-notify.org/iss-now.json"
@@ -22,6 +23,7 @@ async def get_iss_position():
         location = result["iss_position"]
         lon = float(location["longitude"])
         lat = float(location["latitude"])
+        
         return lon, lat
 
 
@@ -43,10 +45,14 @@ class ISSTracker(toga.App):
     R = SIZE // 3
     D = int(SIZE / 2.5)
 
+    #lim: 5000 req/month, 1 req/s
+    REVERSE_GEOCODE_API_KEY = "675c027f6506b510589286zmhbf7670"
+    
+
     def loadPolygon(self, poly: list[tuple[float, float]]):
         if len(poly) < 125:
             return
-
+        
         self.polygons.append([
             cylindricalToCartesian(self.R, long * np.pi / 180, lat * np.pi / 180)
             for long, lat in poly[::max(len(poly)//200, 3)]
@@ -69,24 +75,43 @@ class ISSTracker(toga.App):
         self.start_press = None
         self.iss_pos = None
 
-        original = 'World_Continents.geojson'
+        self.borders = ...
+        self.last_manual_rotation = 0.0
+        self.prev_x_coord = 0.0
+        
+        self.current_rotation = 0
+        
+
+        original = '/Users/hakankoca/iss_app/iss_tracker_app/src/iss_tracker_app/World_Continents.geojson'
         self.polygons = []
         with open(original) as f:
-            borders = json.load(f)['features']
-            for border in borders:
-                self.loadGeoJson(border)
+            self.borders = json.load(f)['features']
+        for border in self.borders:
+            self.loadGeoJson(border)
 
+        
         self.canvas = toga.Canvas(
             style=Pack(flex=1),
             on_drag=self.on_drag,
             on_press=self.on_press,
             on_release=self.on_release,
+            on_resize=self.on_resize,
         )
 
-        self.main_window = toga.MainWindow(size=(150, 250))
-        self.main_window.content = toga.Box(children=[self.canvas])
-        self.main_window.show()
+        self.location_button = toga.Button(
+            "Get projected location",
+            on_press = self.projected_location,
+            style = Pack(padding=(10,10), font_size = 20)
+        )
 
+        self.main_window = toga.MainWindow(size=(400,400))
+        self.main_window.content = toga.Box(style=Pack(direction="column"),
+                                            children=[self.canvas, 
+                                                      self.location_button],
+                                                      )
+        self.main_window.show()
+        
+        
         self.draw()
         asyncio.create_task(self.dataLoop())
 
@@ -123,7 +148,7 @@ class ISSTracker(toga.App):
 
             return long, lat
 
-        # with self.canvas.Fill(color=rgb(*[min(len(points), 255)]*3)) as fill:
+        #with self.canvas.Fill(color=rgb(*[min(len(points), 255)]*3)) as fill:
         with self.canvas.Fill(color=color) as fill:
             def add(shape): return fill.drawing_objects.append(shape)
             start_pos: tuple[float, float, float] | None = None
@@ -202,6 +227,7 @@ class ISSTracker(toga.App):
         ], colors.BLACK)
 
     def draw(self):
+        
         self.canvas.context.clear()
 
         if self.iss_pos:
@@ -219,21 +245,27 @@ class ISSTracker(toga.App):
                 self.drawGlobe()
         else:
             self.drawGlobe()
+        
 
-    def rotate(self, dx: int):
-        angle = -dx * 0.01
-        self.rotation += angle
+    def rotate(self, dx: int, dy = 0):
+        
+            angle = -dx * 0.01
+            self.rotation += angle
 
-        c = np.cos(angle)
-        s = np.sin(angle)
-        for poly in self.polygons:
-            for i, (x, y, z) in enumerate(poly):
-                poly[i] = x*c-y*s, x*s+y*c, z
+            c = np.cos(angle)
+            s = np.sin(angle)
+            for poly in self.polygons:
+                for i, (x, y, z) in enumerate(poly):
+                    poly[i] = x*c-y*s, x*s+y*c, z
 
-        self.draw()
+            self.draw()
+
+            
 
     def on_press(self, widget: toga.Canvas, x: int, y: int, **_):
         self.start_press = (x, y)
+
+        self.prev_x_coord = x
 
     def on_release(self, widget: toga.Canvas, x: int, y: int, **_):
         if self.start_press is not None:
@@ -242,9 +274,54 @@ class ISSTracker(toga.App):
         self.start_press = None
 
     def on_drag(self, widget: toga.Canvas, dx: int, dy: int, **_):
-        self.rotate(dx)
+        self.rotate(self.prev_x_coord -dx)
+
+        self.prev_x_coord = dx
 
         self.start_press = None
+
+        
+
+    def on_resize(self, widget: toga.Canvas, width, height):
+       
+        self.SIZE = min(width,height)
+        self.WIDTH = self.SIZE
+        self.HEIGHT = self.SIZE
+        self.R = self.SIZE // 3
+        self.D = int(self.SIZE / 2.5)
+
+        self.rotation = 0
+        self.rotate(0)
+        
+        self.polygons = []
+        for border in self.borders:
+            self.loadGeoJson(border)
+
+        self.rotate(0)
+
+       
+    async def projected_location(self,widget):
+        
+        lon, lat = self.iss_pos
+        url = "https://geocode.maps.co/reverse?lat="+str(lat)+"&lon="+str(lon)+"&api_key="+self.REVERSE_GEOCODE_API_KEY
+        location_message = str()
+        
+        response = requests.get(url)
+        result = response.json()
+
+        if "error" in result:
+            location_message = "somewhere above the ocean..."
+        else:
+            location_message = str(result["display_name"])
+                
+        await self.main_window.dialog(
+            toga.InfoDialog(
+                "Location",
+                location_message
+            )
+        )
+        
+
 
 
 def main():
